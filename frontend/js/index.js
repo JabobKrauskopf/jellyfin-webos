@@ -17,9 +17,24 @@ var appInfo = {
 };
 
 var deviceInfo;
+var deviceInfoCallbacks = [];
+var deviceInfoReady = false;
 webOS.deviceInfo(function (info) {
     deviceInfo = info;
+    deviceInfoReady = true;
+    for (var i = 0; i < deviceInfoCallbacks.length; i++) {
+        deviceInfoCallbacks[i](info);
+    }
+    deviceInfoCallbacks = [];
 });
+
+function waitForDeviceInfo(callback) {
+    if (deviceInfoReady) {
+        callback(deviceInfo);
+    } else {
+        deviceInfoCallbacks.push(callback);
+    }
+}
 
 //Adds .includes to string to do substring matching
 if (!String.prototype.includes) {
@@ -469,16 +484,21 @@ function handoff(url, bundle) {
         contentFrame.contentDocument.removeEventListener('DOMContentLoaded', onLoad);
         contentFrame.removeEventListener('load', onLoad);
 
-        injectScriptText(contentFrame.contentDocument, 'window.AppInfo = ' + JSON.stringify(appInfo) + ';');
-        injectScriptText(contentFrame.contentDocument, 'window.DeviceInfo = ' + JSON.stringify(deviceInfo) + ';');
+        // Wait for deviceInfo from the Luna service before injecting into the iframe.
+        // Without this, deviceInfo may be undefined if the async callback hasn't fired yet,
+        // causing the device profile to miss DoVi/HDR10 capabilities (race condition).
+        waitForDeviceInfo(function () {
+            injectScriptText(contentFrame.contentDocument, 'window.AppInfo = ' + JSON.stringify(appInfo) + ';');
+            injectScriptText(contentFrame.contentDocument, 'window.DeviceInfo = ' + JSON.stringify(deviceInfo) + ';');
 
-        if (bundle.js) {
-            injectScriptText(contentFrame.contentDocument, bundle.js);
-        }
+            if (bundle.js) {
+                injectScriptText(contentFrame.contentDocument, bundle.js);
+            }
 
-        if (bundle.css) {
-            injectStyleText(contentFrame.contentDocument, bundle.css);
-        }
+            if (bundle.css) {
+                injectStyleText(contentFrame.contentDocument, bundle.css);
+            }
+        });
     }
 
     function onUnload() {
