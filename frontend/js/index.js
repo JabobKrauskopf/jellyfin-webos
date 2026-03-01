@@ -17,22 +17,20 @@ var appInfo = {
 };
 
 var deviceInfo;
-var deviceInfoCallbacks = [];
-var deviceInfoReady = false;
+var deviceInfoCallback;
 webOS.deviceInfo(function (info) {
     deviceInfo = info;
-    deviceInfoReady = true;
-    for (var i = 0; i < deviceInfoCallbacks.length; i++) {
-        deviceInfoCallbacks[i](info);
+    if (deviceInfoCallback) {
+        deviceInfoCallback(info);
+        deviceInfoCallback = null;
     }
-    deviceInfoCallbacks = [];
 });
 
 function waitForDeviceInfo(callback) {
-    if (deviceInfoReady) {
+    if (deviceInfo) {
         callback(deviceInfo);
     } else {
-        deviceInfoCallbacks.push(callback);
+        deviceInfoCallback = callback;
     }
 }
 
@@ -484,21 +482,16 @@ function handoff(url, bundle) {
         contentFrame.contentDocument.removeEventListener('DOMContentLoaded', onLoad);
         contentFrame.removeEventListener('load', onLoad);
 
-        // Wait for deviceInfo from the Luna service before injecting into the iframe.
-        // Without this, deviceInfo may be undefined if the async callback hasn't fired yet,
-        // causing the device profile to miss DoVi/HDR10 capabilities (race condition).
-        waitForDeviceInfo(function () {
-            injectScriptText(contentFrame.contentDocument, 'window.AppInfo = ' + JSON.stringify(appInfo) + ';');
-            injectScriptText(contentFrame.contentDocument, 'window.DeviceInfo = ' + JSON.stringify(deviceInfo) + ';');
+        injectScriptText(contentFrame.contentDocument, 'window.AppInfo = ' + JSON.stringify(appInfo) + ';');
+        injectScriptText(contentFrame.contentDocument, 'window.DeviceInfo = ' + JSON.stringify(deviceInfo) + ';');
 
-            if (bundle.js) {
-                injectScriptText(contentFrame.contentDocument, bundle.js);
-            }
+        if (bundle.js) {
+            injectScriptText(contentFrame.contentDocument, bundle.js);
+        }
 
-            if (bundle.css) {
-                injectStyleText(contentFrame.contentDocument, bundle.css);
-            }
-        });
+        if (bundle.css) {
+            injectStyleText(contentFrame.contentDocument, bundle.css);
+        }
     }
 
     function onUnload() {
@@ -526,8 +519,12 @@ function handoff(url, bundle) {
     // In the case of "loading" and "interactive" are not caught
     contentFrame.addEventListener('load', onLoad);
 
-    contentFrame.style.display = '';
-    contentFrame.src = url;
+    // Ensure deviceInfo is available before loading the iframe.
+    // webOS.deviceInfo() is an async Luna service call that may not have completed yet.
+    waitForDeviceInfo(function () {
+        contentFrame.style.display = '';
+        contentFrame.src = url;
+    });
 }
 
 window.addEventListener('message', function (msg) {
